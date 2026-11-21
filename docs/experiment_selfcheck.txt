@@ -1,0 +1,204 @@
+
+====================================================================================================
+■ 0. 数据迁移：cmp-closed-loop-v1 → cmp-ledger-v2（如实标注派生字段）
+====================================================================================================
+  记录数 34   目标 ('MRR', 'Ra', 'Dishing')
+  源格式 cmp-closed-loop-v1 → 目标格式 cmp-ledger-v2
+  实测字段：['recipe', 'y_mrr', 'y_ra', 'y_dishing', 'cost_cny(逐轮)']
+  派生字段：{'experiment_id': '按行号生成 E000…', 'round_id': '前 25 条=0（首批），之后每 3 条一轮', 'batch_id': '按轮派生 B00/B01…（旧格式无真实批次号）'}
+  缺失字段：['covariates', 'operator', 'timestamp', 'uncertainty']
+  原则：缺失字段保持为空，由 validate() 报 warning；禁止用推测值填充
+
+====================================================================================================
+■ 1. 真台账校验：缺失元数据应报 warning，而不是 error
+====================================================================================================
+台账校验：34 条记录  →  0 个 error，89 个 warning
+------------------------------------------------------------------------------------------------
+级别      错误码                         字段                   次数  说明
+------------------------------------------------------------------------------------------------
+warn    covariates_missing          covariates           34  整条记录没有批次协变量（模型将缺少漂移维度）
+          例：E000, E001, E002
+warn    timestamp_missing           timestamp            34  缺少时间戳
+          例：E000, E001, E002
+warn    recipe_implicit_rule        surfactant_foami      9  打标：需确认消泡工艺，否则供液泵气蚀
+          例：E002, E007, E009
+warn    recipe_implicit_rule        oxidizer_thermal      3  打标：碱性高浓度 H2O2 需控温 ≤25 ℃ 并缩短浆料放置时间
+          例：E016, E020, E025
+warn    recipe_implicit_rule        high_shear_agglo      2  打标：高固含 + 低流量 → 局部高剪切团聚风险
+          例：E002, E024
+warn    recipe_implicit_reject      high_loading_aci      1  命中 REJECT 级规则（丢弃：高固含浆料在强酸下快速沉降（胶体失稳））——数据保留：规则用于约束候选生成，不用于否定既成实验
+          例：E022
+warn    recipe_implicit_rule        inhibitor_overdo      1  记录：强酸下 BTA 成膜能力下降，需补做腐蚀电位测试
+          例：E022
+warn    y_out_of_prior_range        y_dishing             1  Dishing=8.2 超出先验范围 [30, 450]（优于先验下限）
+          例：E003
+warn    y_out_of_prior_range        y_dishing             1  Dishing=12.3 超出先验范围 [30, 450]（优于先验下限）
+          例：E006
+warn    y_out_of_prior_range        y_dishing             1  Dishing=4.74 超出先验范围 [30, 450]（优于先验下限）
+          例：E015
+warn    y_out_of_prior_range        y_dishing             1  Dishing=20.1 超出先验范围 [30, 450]（优于先验下限）
+          例：E016
+warn    y_out_of_prior_range        y_dishing             1  Dishing=28.1 超出先验范围 [30, 450]（优于先验下限）
+          例：E021
+------------------------------------------------------------------------------------------------
+结论：可训练（warning 不阻塞，但会降低模型可用维度）
+
+  错误码分布：{'covariates_missing': 34, 'timestamp_missing': 34, 'recipe_implicit_rule': 15, 'recipe_implicit_reject': 1, 'y_out_of_prior_range': 5}
+  结论：ok=True（缺失协变量/时间戳不阻塞训练，但会降低模型可用维度）
+
+  ⚠ 校验器发现：1 条记录命中规则库 REJECT 级规则（['E022']）
+    根因：模块 1 的 sample_lhs_feasible 只保证**硬约束**可行，不过滤隐式规则库，
+    所以首批 LHS 里可能出现规则库判定为『会沉降』的配方。这类数据被真实测出来了，
+    因此只记 warning、保留在训练集；但**下一批采样前应补上规则过滤**。
+
+====================================================================================================
+■ 2. 三分：真实数据没有异常标签，应完整进入训练集
+====================================================================================================
+数据三分：34 条记录
+  ✅ 进主目标训练       34 条（含 0 条 response 异常，已标记但保留）
+  ⛔ 测量异常剔除        0 条（保留在台账，不进训练）
+  🔬 失效样本单独建模    0 条（供失效概率分类，不参与主目标）
+  ❓ 数据不完整          0 条（既无性能值也无失效标签）
+  训练矩阵：X (34, 10)  Y (34, 3)
+
+  源数据 X (34, 10) / Y (34, 3)
+  三分后 X (34, 10) / Y (34, 3)
+  ✓ 三分结果与源文件逐元素一致（迁移没有丢数据、没有错位）
+
+====================================================================================================
+■ 3. 故障注入：构造脏台账来验证校验器（合成数据，仅用于测试）
+====================================================================================================
+  注入清单：
+    #07 measurement（仪器故障）      #12 response（配方反常，保留）
+    #19 failure=scratch              #23 failure=mix_fail 且清空性能值
+    #05 ambient_temp=41℃、pad=-5     #09 湿度=130%、tool_id=7
+    #15 Ra=280 Å（10× 单位混用）     #27 成本=900 元（口径不一致）
+    #30 时间戳不可解析
+
+台账校验：34 条记录  →  4 个 error，30 个 warning
+------------------------------------------------------------------------------------------------
+级别      错误码                         字段                   次数  说明
+------------------------------------------------------------------------------------------------
+ERROR   covariate_bad_category      tool_id               1  tool_id=7 不在 {1,2,3} 内
+          例：E009
+ERROR   covariate_negative          pad_use_count         1  pad_use_count=-5 不能为负
+          例：E005
+ERROR   covariate_out_of_physical   ambient_humidity      1  湿度 130% 超出 0–100
+          例：E009
+ERROR   timestamp_unparsable        timestamp             1  时间戳无法解析：not-a-timestamp
+          例：E030
+warn    recipe_implicit_rule        surfactant_foami      9  打标：需确认消泡工艺，否则供液泵气蚀
+          例：E002, E007, E009
+warn    recipe_implicit_rule        oxidizer_thermal      3  打标：碱性高浓度 H2O2 需控温 ≤25 ℃ 并缩短浆料放置时间
+          例：E016, E020, E025
+warn    batch_covariate_inconsiste  batch_id              2  同一批次 B00 内的批次级协变量不一致
+          例：E005, E009
+warn    recipe_implicit_rule        high_shear_agglo      2  打标：高固含 + 低流量 → 局部高剪切团聚风险
+          例：E002, E024
+warn    cost_inconsistent           cost_cny              1  记录成本 900 元与成本模型 2139 元偏差 >30%
+          例：E027
+warn    covariate_out_of_typical    pad_use_count         1  pad_use_count=-5 超出典型范围 [0, 400]，模型将外推
+          例：E005
+warn    covariate_out_of_typical    ambient_temp_c        1  ambient_temp_c=41 超出典型范围 [18, 26]，模型将外推
+          例：E005
+warn    covariate_out_of_typical    ambient_humidity      1  ambient_humidity_pct=130 超出典型范围 [35, 65]，模型将外推
+          例：E009
+warn    covariate_out_of_typical    tool_id               1  tool_id=7 超出典型范围 [1, 3]，模型将外推
+          例：E009
+warn    failure_with_values         failure               1  失效样本带有性能值（部分失效？这些值不参与主目标）
+          例：E019
+warn    recipe_implicit_reject      high_loading_aci      1  命中 REJECT 级规则（丢弃：高固含浆料在强酸下快速沉降（胶体失稳））——数据保留：规则用于约束候选生成，不用于否定既成实验
+          例：E022
+warn    recipe_implicit_rule        inhibitor_overdo      1  记录：强酸下 BTA 成膜能力下降，需补做腐蚀电位测试
+          例：E022
+warn    y_out_of_prior_range        y_dishing             1  Dishing=8.2 超出先验范围 [30, 450]（优于先验下限）
+          例：E003
+warn    y_out_of_prior_range        y_dishing             1  Dishing=12.3 超出先验范围 [30, 450]（优于先验下限）
+          例：E006
+warn    y_out_of_prior_range        y_dishing             1  Dishing=4.74 超出先验范围 [30, 450]（优于先验下限）
+          例：E015
+warn    y_out_of_prior_range        y_dishing             1  Dishing=20.1 超出先验范围 [30, 450]（优于先验下限）
+          例：E016
+warn    y_out_of_prior_range        y_dishing             1  Dishing=28.1 超出先验范围 [30, 450]（优于先验下限）
+          例：E021
+warn    y_unit_suspect              y_ra                  1  Ra=280 与先验范围 [1.2, 10] 相差一个数量级以上，疑单位混用
+          例：E015
+------------------------------------------------------------------------------------------------
+结论：erroneous，需人工修正后才能训练
+
+  预期命中的错误码：{'covariate_negative': 1, 'covariate_out_of_physical': 1, 'covariate_bad_category': 1, 'covariate_out_of_typical': 4, 'y_unit_suspect': 1, 'cost_inconsistent': 1, 'timestamp_unparsable': 1, 'batch_covariate_inconsistent': 2}
+  实际命中：{'covariate_negative': 1, 'covariate_out_of_physical': 1, 'covariate_bad_category': 1, 'covariate_out_of_typical': 4, 'y_unit_suspect': 1, 'cost_inconsistent': 1, 'timestamp_unparsable': 1, 'batch_covariate_inconsistent': 2}
+  ✓ 8 类缺陷全部被精确命中，且台账被判为不可直接训练
+
+====================================================================================================
+■ 4. 三分：measurement 剔除 / response 保留标记 / failure 单独建模
+====================================================================================================
+数据三分：34 条记录
+  ✅ 进主目标训练       31 条（含 1 条 response 异常，已标记但保留）
+  ⛔ 测量异常剔除        1 条（保留在台账，不进训练）
+  🔬 失效样本单独建模    2 条（供失效概率分类，不参与主目标）
+  ❓ 数据不完整          0 条（既无性能值也无失效标签）
+  训练矩阵：X (31, 10)  Y (31, 3)
+
+  训练集编号：['E000', 'E001', 'E002', 'E003', 'E004', 'E005']…（共 31）
+  ✓ 剔除集 ['E007']
+  ✓ 标记保留 ['E012']（仍在训练集里）
+  ✓ 失效集 ['E019', 'E023'] 标签 ['scratch', 'mix_fail']
+  ✓ 训练 31 = 34 − 1(measurement) − 2(failure)
+
+====================================================================================================
+■ 5. 批次协变量的结构化校验（覆盖率 / 越界 / 用途）
+====================================================================================================
+批次协变量校验（34 条记录，5 个协变量）
+------------------------------------------------------------------------------------
+协变量                     用途                 覆盖率    缺失      超出典型范围
+------------------------------------------------------------------------------------
+pad_use_count           gpr_input        100%     0           1
+slurry_age_hours        gpr_input        100%     0           0
+ambient_temp_c          gpr_input        100%     0           1
+ambient_humidity_pct    gpr_input        100%     0           1
+tool_id                 random_effect    100%     0           1
+------------------------------------------------------------------------------------
+缺失不阻塞训练（模块 2 会把该维度当未知），但超出典型范围会让 GPR 外推，应结合模块 7 的域外标志一起看。
+
+  处理方式分布：{'pad_use_count': 'gpr_input', 'slurry_age_hours': 'gpr_input', 'ambient_temp_c': 'gpr_input', 'ambient_humidity_pct': 'gpr_input', 'tool_id': 'random_effect'}
+  → gpr_input 的 4 个维度会进 GPR 输入；tool_id 走随机效应，不占输入维度。
+
+====================================================================================================
+■ 6. 台账看板：轮次分布 / 异常分布 / 规格满足率 / 成本合计
+====================================================================================================
+  n_records         34
+  by_round          {0: 25, 1: 3, 2: 3, 3: 3}
+  by_anomaly        {'none': 32, 'measurement': 1, 'response': 1}
+  by_failure        {'none': 32, 'mix_fail': 1, 'scratch': 1, 'agglomeration': 0, 'other': 0}
+  n_train           31
+  spec_hit_rate     0.1935483870967742
+  cost_total_cny    17941.645841217924
+  n_batches         4
+
+====================================================================================================
+■ 7. 读写往返：JSON 序列化后记录数与三分结果必须完全一致
+====================================================================================================
+  写入：E:\CMP-Agent-Project\data\experiment_ledger.json
+  回读：34 条记录（原 34 条）
+  ✓ 记录内容、训练矩阵、失效集完全一致
+  ✓ 回读后校验结论一致（4 error / 30 warning）
+
+====================================================================================================
+■ 8. 训练前门槛：校验不过就不该把数据送进模块 2
+====================================================================================================
+  真台账 ok=True  → 可以训练
+  脏台账 ok=False → 必须拒绝
+  → 契约建议：模块 2/3 的入口先调 validate().ok，或在 split() 之前只接受 !ok 时人工确认过的数据。
+
+====================================================================================================
+■ 9. 汇总
+====================================================================================================
+  迁移：34 条 → cmp-ledger-v2（派生 3 个字段，缺失 4 类元数据）
+  真台账：0 error / 89 warning（缺失元数据）
+  脏台账：4 error / 30 warning（8 类缺陷全部命中）
+  三分：训练 31 / 剔除 1 / 标记 1 / 失效 2 / 不完整 0
+  留档：E:\CMP-Agent-Project\docs\experiment_selfcheck.txt
+  台账：E:\CMP-Agent-Project\data\experiment_ledger.json
+
+全部自检通过（10 条断言：迁移零丢失、真台账无 error、8 类缺陷精确命中、三分互斥且完备、协变量覆盖率、往返一致、门槛生效）。

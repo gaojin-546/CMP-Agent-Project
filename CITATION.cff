@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "CMP-Agent-Project: Human-in-the-loop closed-loop experimental agent for copper CMP slurry formulation"
+abstract: >-
+  A domain-specific prototype that couples constrained Bayesian optimization
+  (qNEHVI over BoTorch/GPyTorch) with a Pareto-TOPSIS post-processor,
+  an experiment ledger with anomaly triage, and a chemical-specific RAG
+  microservice for CMP slurry formulation. Not a general-purpose SDK.
+type: software
+authors:
+  - name: "CMP-Agent-Project contributors"
+version: "0.1.0"
+date-released: "2026-11-21"
+keywords:
+  - chemical mechanical polishing
+  - CMP slurry
+  - Bayesian optimization
+  - multi-objective optimization
+  - qNEHVI
+  - materials informatics
+  - retrieval-augmented generation
+references:
+  - type: article
+    title: "Parallel Bayesian Optimization of Multiple Noisy Objectives with Expected Hypervolume Improvement"
+    authors: ["Daulton, S.", "Balandat, M.", "Bakshy, E."]
+    year: 2021
+  - type: article
+    title: "BoTorch: A Framework for Efficient Monte-Carlo Bayesian Optimization"
+    authors: ["Balandat, M.", "Karrer, B.", "Jiang, D. R.", "Daulton, S.", "Letham, B.", "Wilson, A. G.", "Bakshy, E."]
+    year: 2020

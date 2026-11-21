@@ -1,0 +1,27 @@
+# ============================================================================
+#  CMP-Agent-Project —— 主环境依赖（Web UI + 算法闭环）
+#  已在本机验证：Python 3.15 / Windows / CPU-only
+#    torch 2.15.0 | botorch 0.18.1 | gpytorch 1.15.2 | streamlit 1.67.0
+#
+#  安装：pip install -r requirements.txt
+#  说明：本文件**不包含** RAG 侧依赖（chromadb / sentence-transformers /
+#        langchain-*），它们属于独立的 Python 3.11 微服务，见 requirements-rag.txt。
+#        原因写在 README §5.14.1：chromadb 依赖的 onnxruntime 无 3.15 wheel。
+# ============================================================================
+
+# ---- 数值与贝叶斯优化（模块 1–5）----
+numpy==2.5.5
+scipy==1.18.1
+torch==2.15.0            # CPU 版即可：pip install torch --index-url https://download.pytorch.org/whl/cpu
+botorch==0.18.1
+gpytorch==1.15.2
+linear_operator==0.6.1
+scikit-learn==1.9.1      # LOOCV / 指标
+
+# ---- Web 界面 ----
+streamlit==1.67.0
+pandas==3.1.1
+openpyxl==3.1.5          # 推荐结果导出 .xlsx
+
+# ---- RAG 微服务客户端 ----
+# 只用标准库 urllib，无需额外依赖（.env 解析也是手写的，见 src/config.py）
