@@ -1,3 +1,5 @@
+![UI Demo 1](demo1.png)
+![UI Demo 2](demo2.png)
 # CMP 抛光液配方开发 Agent
 
 > **CMP-Agent-Project**: Human-in-the-loop closed-loop experimental agent for copper CMP slurry formulation.
